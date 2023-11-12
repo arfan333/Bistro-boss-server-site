@@ -10,8 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // Connecting with MongoDB Driver
-const uri =
-  `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.7cekihd.mongodb.net/?retryWrites=true&w=majority`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.7cekihd.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -26,6 +25,20 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+    // Get the database and collection on which to run the operation
+    // get menu items 
+    const menuDatabase = client.db("bistroDB").collection("menuCollection");
+    app.get('/menu', async(req,res)=>{
+      const result = await menuDatabase.find().toArray()
+      res.send(result)
+    })
+    // get reviews from database
+    const reviewsDatabase = client.db("bistroDB").collection("reviewsCollection");
+    app.get('/reviews', async(req,res)=>{
+      const result = await reviewsDatabase.find().toArray()
+      res.send(result)
+    })
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
