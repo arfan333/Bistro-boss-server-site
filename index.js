@@ -3,7 +3,7 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // middleware part
 app.use(cors());
@@ -26,16 +26,42 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Get the database and collection on which to run the operation
-    // get menu items 
+    // get menu items
     const menuDatabase = client.db("bistroDB").collection("menuCollection");
-    app.get('/menu', async(req,res)=>{
-      const result = await menuDatabase.find().toArray()
-      res.send(result)
-    })
+    app.get("/menu", async (req, res) => {
+      const result = await menuDatabase.find().toArray();
+      res.send(result);
+    });
     // get reviews from database
-    const reviewsDatabase = client.db("bistroDB").collection("reviewsCollection");
-    app.get('/reviews', async(req,res)=>{
-      const result = await reviewsDatabase.find().toArray()
+    const reviewsDatabase = client
+      .db("bistroDB")
+      .collection("reviewsCollection");
+    app.get("/reviews", async (req, res) => {
+      const result = await reviewsDatabase.find().toArray();
+      res.send(result);
+    });
+    //  ADD tO Cart section connect with database
+    const addToCartDatabase = client
+      .db("bistroDB")
+      .collection("addToCartCollection");
+      // post
+    app.post("/carts", async (req, res) => {
+      const cartItems = req.body;
+      const result = await addToCartDatabase.insertOne(cartItems);
+      res.send(result);
+    });
+    // get
+    app.get("/carts", async (req, res) => {
+      const email = req.query.email;
+      const query = { email: email };
+      const result = await addToCartDatabase.find(query).toArray();
+      res.send(result);
+    });
+    // delete
+    app.delete('/carts/:id', async(req,res) => {
+      const id = req.params.id 
+      const query = { _id : new ObjectId(id)}
+      const result = await addToCartDatabase.deleteOne(query)
       res.send(result)
     })
 
