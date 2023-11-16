@@ -3,6 +3,7 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // middleware part
@@ -26,13 +27,89 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Get the database and collection on which to run the operation
+    // jwt related Api (JWT)
+    // post
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
+    //Used Middleware :  Verified Token
+    const verifiedToken = (req, res, next) => {
+      console.log("inside verified token:", req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({message: 'forbidden access'})
+      }
+      const token = req.headers.authorization.split(' ')[1]
+      // nicher ongshota na korle oo chole
+      // if (!token) {
+      //   return res.status(401).send({message: 'forbidden access'})
+      // }
+      // next();
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) =>{
+        if (err) {
+          return res.status(401).send({ message: 'forbidden access'})
+        }
+        req.decoded = decoded
+        next()
+      })
+    };
+    // user collection & user database section
+    // user collection create
+    const userDatabase = client.db("bistroDB").collection("userCollection");
+    // post
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      // insert user email if user email doesn't  exists
+      // this process can do in many ways ( such as : unique email id, upsert, simple check)
+      const query = { email: user.email };
+      const existingUser = await userDatabase.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "user already exists", insertedId: null });
+      }
+      const result = await userDatabase.insertOne(user);
+      res.send(result);
+    });
+
+    // get users
+    app.get("/users", verifiedToken, async (req, res) => {
+      const result = await userDatabase.find().toArray();
+      res.send(result);
+    });
+    // make admin
+    app.patch("/users/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = {
+        _id: new ObjectId(id),
+      };
+      const updatedDoc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userDatabase.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    // users delete operation
+    app.delete("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const result = await userDatabase.deleteOne(query);
+      res.send(result);
+    });
     // get menu items
+    // collection create
     const menuDatabase = client.db("bistroDB").collection("menuCollection");
     app.get("/menu", async (req, res) => {
       const result = await menuDatabase.find().toArray();
       res.send(result);
     });
     // get reviews from database
+    // collection create
     const reviewsDatabase = client
       .db("bistroDB")
       .collection("reviewsCollection");
@@ -41,10 +118,11 @@ async function run() {
       res.send(result);
     });
     //  ADD tO Cart section connect with database
+    // collection create
     const addToCartDatabase = client
       .db("bistroDB")
       .collection("addToCartCollection");
-      // post
+    // post
     app.post("/carts", async (req, res) => {
       const cartItems = req.body;
       const result = await addToCartDatabase.insertOne(cartItems);
@@ -58,12 +136,12 @@ async function run() {
       res.send(result);
     });
     // delete
-    app.delete('/carts/:id', async(req,res) => {
-      const id = req.params.id 
-      const query = { _id : new ObjectId(id)}
-      const result = await addToCartDatabase.deleteOne(query)
-      res.send(result)
-    })
+    app.delete("/carts/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await addToCartDatabase.deleteOne(query);
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
