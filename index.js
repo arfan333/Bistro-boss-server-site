@@ -38,24 +38,36 @@ async function run() {
     });
     //Used Middleware :  Verified Token
     const verifiedToken = (req, res, next) => {
-      console.log("inside verified token:", req.headers.authorization);
+      // console.log("inside verified token:", req.headers.authorization);
       if (!req.headers.authorization) {
-        return res.status(401).send({message: 'forbidden access'})
+        return res.status(401).send({ message: "unauthorized access" });
       }
-      const token = req.headers.authorization.split(' ')[1]
+      const token = req.headers.authorization.split(" ")[1];
       // nicher ongshota na korle oo chole
       // if (!token) {
       //   return res.status(401).send({message: 'forbidden access'})
       // }
       // next();
-      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) =>{
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
-          return res.status(401).send({ message: 'forbidden access'})
+          return res.status(401).send({ message: "unauthorized access" });
         }
-        req.decoded = decoded
-        next()
-      })
+        req.decoded = decoded;
+        next();
+      });
     };
+
+    // used verifiedAdmin after verifiedToken
+    const verifiedAdmin = async (req , res, next) =>{
+      const email = req.decoded.email
+      const query = { email: email }
+      const user = await userDatabase.findOne(query)
+      const isAdmin = user?.role === 'admin'
+      if (!isAdmin) {
+        return res.status(403).send({message: 'forbidden access'})
+      }
+      next()
+    }
     // user collection & user database section
     // user collection create
     const userDatabase = client.db("bistroDB").collection("userCollection");
@@ -74,12 +86,12 @@ async function run() {
     });
 
     // get users
-    app.get("/users", verifiedToken, async (req, res) => {
+    app.get("/users", verifiedToken,verifiedAdmin, async (req, res) => {
       const result = await userDatabase.find().toArray();
       res.send(result);
     });
     // make admin
-    app.patch("/users/admin/:id", async (req, res) => {
+    app.patch("/users/admin/:id", verifiedToken,verifiedAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = {
         _id: new ObjectId(id),
@@ -92,8 +104,23 @@ async function run() {
       const result = await userDatabase.updateOne(filter, updatedDoc);
       res.send(result);
     });
+
+    app.get("/users/admin/:email", verifiedToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({message: 'forbidden access'})
+      }
+      const query = { email: email }
+      const user = await userDatabase.findOne(query)
+      let admin = false
+      if (user) {
+        admin = user?.role === 'admin'
+      }
+      res.send({ admin })
+    });
+
     // users delete operation
-    app.delete("/users/:id", async (req, res) => {
+    app.delete("/users/:id",verifiedToken, verifiedAdmin, async (req, res) => {
       const id = req.params.id;
       const query = {
         _id: new ObjectId(id),
