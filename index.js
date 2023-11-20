@@ -3,6 +3,8 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
+// // This is your test secret API key.
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
@@ -58,16 +60,16 @@ async function run() {
     };
 
     // used verifiedAdmin after verifiedToken
-    const verifiedAdmin = async (req , res, next) =>{
-      const email = req.decoded.email
-      const query = { email: email }
-      const user = await userDatabase.findOne(query)
-      const isAdmin = user?.role === 'admin'
+    const verifiedAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userDatabase.findOne(query);
+      const isAdmin = user?.role === "admin";
       if (!isAdmin) {
-        return res.status(403).send({message: 'forbidden access'})
+        return res.status(403).send({ message: "forbidden access" });
       }
-      next()
-    }
+      next();
+    };
     // user collection & user database section
     // user collection create
     const userDatabase = client.db("bistroDB").collection("userCollection");
@@ -86,41 +88,46 @@ async function run() {
     });
 
     // get users
-    app.get("/users", verifiedToken,verifiedAdmin, async (req, res) => {
+    app.get("/users", verifiedToken, verifiedAdmin, async (req, res) => {
       const result = await userDatabase.find().toArray();
       res.send(result);
     });
     // make admin
-    app.patch("/users/admin/:id", verifiedToken,verifiedAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = {
-        _id: new ObjectId(id),
-      };
-      const updatedDoc = {
-        $set: {
-          role: "admin",
-        },
-      };
-      const result = await userDatabase.updateOne(filter, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/admin/:id",
+      verifiedToken,
+      verifiedAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = {
+          _id: new ObjectId(id),
+        };
+        const updatedDoc = {
+          $set: {
+            role: "admin",
+          },
+        };
+        const result = await userDatabase.updateOne(filter, updatedDoc);
+        res.send(result);
+      }
+    );
 
     app.get("/users/admin/:email", verifiedToken, async (req, res) => {
       const email = req.params.email;
       if (email !== req.decoded.email) {
-        return res.status(403).send({message: 'forbidden access'})
+        return res.status(403).send({ message: "forbidden access" });
       }
-      const query = { email: email }
-      const user = await userDatabase.findOne(query)
-      let admin = false
+      const query = { email: email };
+      const user = await userDatabase.findOne(query);
+      let admin = false;
       if (user) {
-        admin = user?.role === 'admin'
+        admin = user?.role === "admin";
       }
-      res.send({ admin })
+      res.send({ admin });
     });
 
     // users delete operation
-    app.delete("/users/:id",verifiedToken, verifiedAdmin, async (req, res) => {
+    app.delete("/users/:id", verifiedToken, verifiedAdmin, async (req, res) => {
       const id = req.params.id;
       const query = {
         _id: new ObjectId(id),
@@ -135,6 +142,47 @@ async function run() {
       const result = await menuDatabase.find().toArray();
       res.send(result);
     });
+    // app.get() => for a specific (id) to update a items
+    app.get("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuDatabase.findOne(query);
+      res.send(result);
+    });
+    // app.patch() for updated something
+    app.patch("/menu/:id", verifiedToken, verifiedAdmin, async (req, res) => {
+      const item = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          name: item.name,
+          category: item.category,
+          price: item.price,
+          recipe: item.recipe,
+          image: item.image,
+        },
+      };
+      const result = await menuDatabase.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
+    // post menu item api create
+    app.post("/menu", verifiedToken, verifiedAdmin, async (req, res) => {
+      const addItemsIndatabase = req.body;
+      const result = await menuDatabase.insertOne(addItemsIndatabase);
+      res.send(result);
+    });
+    // menu delete api create
+    app.delete("/menu/:id", verifiedToken, verifiedAdmin, async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const result = await menuDatabase.deleteOne(query);
+      res.send(result);
+    });
+
     // get reviews from database
     // collection create
     const reviewsDatabase = client
@@ -168,6 +216,74 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const result = await addToCartDatabase.deleteOne(query);
       res.send(result);
+    });
+
+    // create payment collection first
+    const paymentDatabase = client
+      .db("bistroDB")
+      .collection("paymentCollection");
+
+    // GET ***METHOD*** PAYMENTS
+    app.get("/payments/:email", verifiedToken, async (req, res) => {
+      const query = { email: req.params.email };
+      if (req.params.email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const result = await paymentDatabase.find(query).toArray();
+      res.send(result);
+    });
+    // make payment calculate api  // ***POST METHOD***
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentDatabase.insertOne(payment);
+
+      // carefully delete each item form cart
+      // console.log("payment info", payment);
+      const query = {
+        _id: {
+          $in: payment.cartId.map((id) => new ObjectId(id)),
+        },
+      };
+      const deleteResult = await addToCartDatabase.deleteMany(query);
+      res.send({ paymentResult, deleteResult });
+    });
+
+    // create payment intent api
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      // console.log(amount);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    // states // make revenue // analytics api create
+    app.get("/admin-states", async (req, res) => {
+      const users = await userDatabase.estimatedDocumentCount();
+      const menuItems = await menuDatabase.estimatedDocumentCount();
+      const ordersItems = await paymentDatabase.estimatedDocumentCount();
+      //  revenue bangla system
+      // const payments = await paymentDatabase.find().toArray()
+      // const revenue = payments.reduce( (total, payment) => total + payment.price, 0)
+      //  now the best way revenue
+      const result =  await paymentDatabase.aggregate([
+        {
+          
+        }
+      ])
+      res.send({
+        users,
+        menuItems,
+        ordersItems,
+       
+      });
     });
 
     // Send a ping to confirm a successful connection
