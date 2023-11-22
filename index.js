@@ -265,7 +265,7 @@ async function run() {
     });
 
     // states // make revenue // analytics api create
-    app.get("/admin-states", async (req, res) => {
+    app.get("/admin-stats",verifiedToken,verifiedAdmin, async (req, res) => {
       const users = await userDatabase.estimatedDocumentCount();
       const menuItems = await menuDatabase.estimatedDocumentCount();
       const ordersItems = await paymentDatabase.estimatedDocumentCount();
@@ -275,16 +275,51 @@ async function run() {
       //  now the best way revenue
       const result =  await paymentDatabase.aggregate([
         {
-          
+          $group: {
+            _id: null,
+            totalRevenue: {
+              $sum: '$price'
+            }
+          }
         }
-      ])
+      ]).toArray()
+      const revenue = result.length > 0 ? result[0].totalRevenue : 0
       res.send({
         users,
         menuItems,
         ordersItems,
-       
+        revenue,
       });
     });
+
+    // using aggregate pipe line
+    app.get('/order-stats', async(req, res) =>{
+      const result = await paymentDatabase.aggregate([
+        {  // unwind mane holo alada kora menuItem gula theke ek ekta kore 
+          $unwind: '$menuItemId' // menuItemId == menuItemIds hobe next ee mone rakhba
+        },
+        { //eta ekta object
+          $lookup: {
+              from: 'menuCollection',
+              localField: 'menuItemId',
+              foreignField: '_id',
+              as: 'menuItems'
+          }
+        },
+        { // abar unwind kora . joto bar lage ta bujhe unwind korte hobe. ebar menuItems ke unwind kora
+            $unwind: '$menuItems',
+        },
+        {
+          $group: {
+            _id: '$menuItems.category',
+            quantity: { $sum: 1 },
+            revenue: { $sum: '$menuItems.price' }
+          }
+        }
+      ]).toArray()
+
+      res.send(result)
+    })
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
